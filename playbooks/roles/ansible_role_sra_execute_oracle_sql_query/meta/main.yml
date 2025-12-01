@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  role_name: sra_execute_oracle_sql_query
+  author: Satish satti
+  description: "Execute SELECT-only SQL queries on Oracle using sqlplus for SRA/AAP automation"
+dependencies: []
