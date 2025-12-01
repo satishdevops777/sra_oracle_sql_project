@@ -1,0 +1,20 @@
+---
+# Example playbook to run the Oracle SQL query role
+- name: Run Oracle SQL Query via SRA Role
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  # Load ServiceNow payload mapping + config (example var files)
+  vars_files:
+  - roles/ansible_role_sra_execute_oracle_sql_query/files/config.yml
+  - roles/ansible_role_sra_execute_oracle_sql_query/files/extract_sra_data.yml
+  
+  roles:
+  - role: ansible_role_sra_execute_oracle_sql_query
+  # Optionally override any variables here, e.g.:
+  # vars:
+  # oracle_host: "db.example.com"
+  # oracle_user: "ansible_user"
+  # oracle_password: "{{ vault_or_secret

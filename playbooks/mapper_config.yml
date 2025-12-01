@@ -1,0 +1,29 @@
+---
+version: "1.0"
+
+# Maps ServiceNow variables -> Ansible variables
+
+variable_mapping:
+  ITDORASQLQUERY: "sql_query"
+  ITDORAHOST: "oracle_host"
+  ITDORAPORT: "oracle_port"
+  ITDORASID: "oracle_service"
+  ITDORAUSER: "oracle_user"
+  ITDORAPASS: "oracle_password"
+
+  Classification: "flow_id"
+  ExpectedStart: "expected_start"
+
+  RITM: "ritm_number"
+  CALLBACKURL: "sn_callback_url"
+
+defaults:
+  oracle_port: 1521
+  flow_id: "ITDRESORA001"
+
+required:
+  - ITDORASQLQUERY
+  - ITDORAHOST
+  - ITDORASID
+  - Classification
+  - ExpectedStart
