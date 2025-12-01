@@ -1,0 +1,4 @@
+---
+oracle:
+  default_port: 1521
+  client: "sqlplus"
