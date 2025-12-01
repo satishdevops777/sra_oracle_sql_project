@@ -1,0 +1,54 @@
+---
+- name: Validate SQL query is SELECT-only
+  assert:
+    that:
+      - sql_query is regex("^(?i)select.*")
+    fail_msg: "Only SELECT statements are allowed."
+
+- name: Check if sqlplus is installed
+  command: which sqlplus
+  register: sqlplus_check
+  changed_when: false
+  failed_when: sqlplus_check.rc != 0
+
+- name: Execute Oracle SQL query
+  shell: |
+    sqlplus -S {{ oracle_user }}/{{ oracle_password }}@'{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }}' <<EOF
+    SET PAGESIZE 50000
+    SET LINESIZE 32767
+    SET FEEDBACK OFF
+    SET HEADING OFF
+    SET TRIMSPOOL ON
+    SPOOL {{ sql_output_file }}
+    {{ sql_query }};
+    SPOOL OFF
+    EXIT;
+    EOF
+  register: sql_result
+  changed_when: true
+
+- name: Read SQL query output
+  slurp:
+    src: "{{ sql_output_file }}"
+  register: raw_output
+
+- name: Decode SQL output
+  set_fact:
+    decoded_output: "{{ raw_output.content | b64decode }}"
+
+- name: Print SQL output (visible in job log + sent back to CACF/SN)
+  debug:
+    msg: "{{ decoded_output }}"
+
+- name: Send output back to ServiceNow RITM
+  uri:
+    url: "{{ sn_callback_url }}"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ritm: "{{ ritm_number }}"
+      status: "SUCCESS"
+      output: "{{ decoded_output }}"
+  when: sn_callback_url != ""
