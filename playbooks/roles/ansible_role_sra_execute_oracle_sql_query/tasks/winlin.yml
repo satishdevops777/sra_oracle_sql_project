@@ -1,0 +1,150 @@
+---
+- name: Run SELECT-only Oracle SQL query (Linux + Windows)
+  hosts: all
+  gather_facts: yes
+
+  tasks:
+
+    # ------------------------------------------------------------
+    # 1. Validate SQL query
+    # ------------------------------------------------------------
+    - name: Validate SQL query is SELECT-only
+      assert:
+        that:
+          - sql_query is regex("^(?i)select.*")
+        fail_msg: "Only SELECT statements are allowed."
+
+    # ------------------------------------------------------------
+    # 2. Check sqlplus availability
+    # ------------------------------------------------------------
+    - name: Check if sqlplus exists (Linux)
+      command: which sqlplus
+      register: sqlplus_check
+      changed_when: false
+      failed_when: sqlplus_check.rc != 0
+      when: ansible_os_family != "Windows"
+
+    - name: Check if sqlplus exists (Windows)
+      win_shell: where sqlplus
+      register: sqlplus_check
+      changed_when: false
+      failed_when: sqlplus_check.rc != 0
+      when: ansible_os_family == "Windows"
+
+    # ------------------------------------------------------------
+    # 3. Execute SQL (Linux)
+    # ------------------------------------------------------------
+    - name: Execute Oracle SQL query (Linux)
+      shell: |
+        sqlplus -S {{ oracle_user }}/{{ oracle_password }}@'{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }}' <<EOF
+        WHENEVER SQLERROR EXIT SQL.SQLCODE
+        WHENEVER OSERROR EXIT 9
+        SET PAGESIZE 50000
+        SET LINESIZE 32767
+        SET FEEDBACK OFF
+        SET HEADING OFF
+        SET TRIMSPOOL ON
+        {{ sql_query }};
+        EXIT;
+        EOF
+      register: sql_exec
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family != "Windows"
+
+    # ------------------------------------------------------------
+    # 4. Execute SQL (Windows)
+    # ------------------------------------------------------------
+    - name: Execute Oracle SQL query (Windows)
+      win_shell: |
+        sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }} ^
+        "WHENEVER SQLERROR EXIT SQL.SQLCODE
+         WHENEVER OSERROR EXIT 9
+         SET PAGESIZE 50000
+         SET LINESIZE 32767
+         SET FEEDBACK OFF
+         SET HEADING OFF
+         SET TRIMSPOOL ON
+         {{ sql_query }};
+         EXIT;"
+      register: sql_exec
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family == "Windows"
+
+    # ------------------------------------------------------------
+    # 5. Detect failure
+    # ------------------------------------------------------------
+    - name: Detect SQL execution failure
+      set_fact:
+        sql_failed: >-
+          {{
+            sql_exec.rc != 0
+            or (sql_exec.stdout is search('ORA-'))
+          }}
+
+    # ------------------------------------------------------------
+    # 6. Extract SQL error message
+    # ------------------------------------------------------------
+    - name: Extract SQL error message
+      set_fact:
+        sql_error: >-
+          {{
+            (
+              sql_exec.stdout_lines
+              | select('search', 'ORA-')
+              | list
+              | join('\n')
+            )
+            if sql_failed else ''
+          }}
+
+    # ------------------------------------------------------------
+    # 7. Extract SQL output (success only)
+    # ------------------------------------------------------------
+    - name: Extract SQL output
+      set_fact:
+        sql_output: >-
+          {{
+            sql_exec.stdout_lines
+            | reject('match', '^(Connected to|Disconnected from)')
+            | reject('match', '^SQL>')
+            | reject('search', 'ORA-')
+            | list
+            | join('\n')
+          }}
+      when: not sql_failed
+
+    # ------------------------------------------------------------
+    # 8. Set final status
+    # ------------------------------------------------------------
+    - name: Set final SQL status
+      set_fact:
+        sql_status: "{{ 'FAILED' if sql_failed else 'SUCCESS' }}"
+
+    # ------------------------------------------------------------
+    # 9. Display result
+    # ------------------------------------------------------------
+    - name: Show SQL execution result
+      debug:
+        msg:
+          status: "{{ sql_status }}"
+          output: "{{ sql_output | default('') }}"
+          error: "{{ sql_error | default('') }}"
+
+    # ------------------------------------------------------------
+    # 10. Send result to ServiceNow (optional)
+    # ------------------------------------------------------------
+    - name: Send output back to ServiceNow RITM
+      uri:
+        url: "{{ sn_callback_url }}"
+        method: POST
+        headers:
+          Content-Type: application/json
+        body_format: json
+        body:
+          ritm: "{{ ritm_number }}"
+          status: "{{ sql_status }}"
+          output: "{{ sql_output | default('') }}"
+          error: "{{ sql_error | default('') }}"
+      when: sn_callback_url | default('') | length > 0
