@@ -1,18 +1,22 @@
 ---
-- name: Run SELECT-only Oracle SQL query (Linux + Windows)
+- name: Run multiple SELECT-only Oracle SQL queries (Linux + Windows)
   hosts: all
   gather_facts: yes
+
+  vars:
+    sql_results: []
 
   tasks:
 
     # ------------------------------------------------------------
-    # 1. Validate SQL query
+    # 1. Validate queries are SELECT-only
     # ------------------------------------------------------------
-    - name: Validate SQL query is SELECT-only
+    - name: Validate all SQL queries are SELECT-only
       assert:
         that:
-          - sql_query is regex("^(?i)select.*")
-        fail_msg: "Only SELECT statements are allowed."
+          - item.query is regex("^(?i)select.*")
+        fail_msg: "Only SELECT statements are allowed. Invalid query: {{ item.name }}"
+      loop: "{{ sql_queries }}"
 
     # ------------------------------------------------------------
     # 2. Check sqlplus availability
@@ -32,110 +36,103 @@
       when: ansible_os_family == "Windows"
 
     # ------------------------------------------------------------
-    # 3. Execute SQL (Linux)
+    # 3. Execute queries one by one
     # ------------------------------------------------------------
-    - name: Execute Oracle SQL query (Linux)
-      shell: |
-        sqlplus -S {{ oracle_user }}/{{ oracle_password }}@'{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }}' <<EOF
-        WHENEVER SQLERROR EXIT SQL.SQLCODE
-        WHENEVER OSERROR EXIT 9
-        SET PAGESIZE 50000
-        SET LINESIZE 32767
-        SET FEEDBACK OFF
-        SET HEADING OFF
-        SET TRIMSPOOL ON
-        {{ sql_query }};
-        EXIT;
-        EOF
-      register: sql_exec
-      failed_when: false
-      changed_when: false
-      when: ansible_os_family != "Windows"
+    - name: Execute Oracle SQL queries
+      block:
+
+        # ---------- Linux ----------
+        - name: Run query (Linux)
+          shell: |
+            sqlplus -S {{ oracle_user }}/{{ oracle_password }}@'{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }}' <<EOF
+            WHENEVER SQLERROR EXIT SQL.SQLCODE
+            WHENEVER OSERROR EXIT 9
+            SET PAGESIZE 50000
+            SET LINESIZE 32767
+            SET FEEDBACK OFF
+            SET HEADING OFF
+            SET TRIMSPOOL ON
+            {{ item.query }};
+            EXIT;
+            EOF
+          register: sql_exec
+          failed_when: false
+          changed_when: false
+          when: ansible_os_family != "Windows"
+
+        # ---------- Windows ----------
+        - name: Run query (Windows)
+          win_shell: |
+            sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }} ^
+            "WHENEVER SQLERROR EXIT SQL.SQLCODE
+             WHENEVER OSERROR EXIT 9
+             SET PAGESIZE 50000
+             SET LINESIZE 32767
+             SET FEEDBACK OFF
+             SET HEADING OFF
+             SET TRIMSPOOL ON
+             {{ item.query }};
+             EXIT;"
+          register: sql_exec
+          failed_when: false
+          changed_when: false
+          when: ansible_os_family == "Windows"
+
+        # ---------- Detect failure ----------
+        - name: Detect query failure
+          set_fact:
+            query_failed: >-
+              {{
+                sql_exec.rc != 0
+                or (sql_exec.stdout is search('ORA-'))
+              }}
+
+        # ---------- Build result ----------
+        - name: Append query result
+          set_fact:
+            sql_results: "{{ sql_results + [ query_result ] }}"
+          vars:
+            query_result:
+              name: "{{ item.name }}"
+              status: "{{ 'FAILED' if query_failed else 'SUCCESS' }}"
+              output: >-
+                {{
+                  (
+                    sql_exec.stdout_lines
+                    | reject('match', '^(Connected to|Disconnected from)')
+                    | reject('match', '^SQL>')
+                    | reject('search', 'ORA-')
+                    | list
+                    | join('\n')
+                  )
+                  if not query_failed else ''
+                }}
+              error: >-
+                {{
+                  (
+                    sql_exec.stdout_lines
+                    | select('search', 'ORA-')
+                    | list
+                    | join('\n')
+                  )
+                  if query_failed else ''
+                }}
+
+      loop: "{{ sql_queries }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     # ------------------------------------------------------------
-    # 4. Execute SQL (Windows)
+    # 4. Final summary
     # ------------------------------------------------------------
-    - name: Execute Oracle SQL query (Windows)
-      win_shell: |
-        sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }} ^
-        "WHENEVER SQLERROR EXIT SQL.SQLCODE
-         WHENEVER OSERROR EXIT 9
-         SET PAGESIZE 50000
-         SET LINESIZE 32767
-         SET FEEDBACK OFF
-         SET HEADING OFF
-         SET TRIMSPOOL ON
-         {{ sql_query }};
-         EXIT;"
-      register: sql_exec
-      failed_when: false
-      changed_when: false
-      when: ansible_os_family == "Windows"
-
-    # ------------------------------------------------------------
-    # 5. Detect failure
-    # ------------------------------------------------------------
-    - name: Detect SQL execution failure
-      set_fact:
-        sql_failed: >-
-          {{
-            sql_exec.rc != 0
-            or (sql_exec.stdout is search('ORA-'))
-          }}
-
-    # ------------------------------------------------------------
-    # 6. Extract SQL error message
-    # ------------------------------------------------------------
-    - name: Extract SQL error message
-      set_fact:
-        sql_error: >-
-          {{
-            (
-              sql_exec.stdout_lines
-              | select('search', 'ORA-')
-              | list
-              | join('\n')
-            )
-            if sql_failed else ''
-          }}
-
-    # ------------------------------------------------------------
-    # 7. Extract SQL output (success only)
-    # ------------------------------------------------------------
-    - name: Extract SQL output
-      set_fact:
-        sql_output: >-
-          {{
-            sql_exec.stdout_lines
-            | reject('match', '^(Connected to|Disconnected from)')
-            | reject('match', '^SQL>')
-            | reject('search', 'ORA-')
-            | list
-            | join('\n')
-          }}
-      when: not sql_failed
-
-    # ------------------------------------------------------------
-    # 8. Set final status
-    # ------------------------------------------------------------
-    - name: Set final SQL status
-      set_fact:
-        sql_status: "{{ 'FAILED' if sql_failed else 'SUCCESS' }}"
-
-    # ------------------------------------------------------------
-    # 9. Display result
-    # ------------------------------------------------------------
-    - name: Show SQL execution result
+    - name: Show SQL execution summary
       debug:
-        msg:
-          status: "{{ sql_status }}"
-          output: "{{ sql_output | default('') }}"
-          error: "{{ sql_error | default('') }}"
+        var: sql_results
 
     # ------------------------------------------------------------
-    # 10. Send result to ServiceNow (optional)
+    # 5. Send aggregated result to ServiceNow (optional)
     # ------------------------------------------------------------
-    - name: Send output back to ServiceNow RITM
+    - name: Send results to ServiceNow
       uri:
         url: "{{ sn_callback_url }}"
         method: POST
@@ -144,7 +141,5 @@
         body_format: json
         body:
           ritm: "{{ ritm_number }}"
-          status: "{{ sql_status }}"
-          output: "{{ sql_output | default('') }}"
-          error: "{{ sql_error | default('') }}"
+          results: "{{ sql_results }}"
       when: sn_callback_url | default('') | length > 0
