@@ -18,3 +18,6 @@ oracle_password: ""                       # Oracle password. (Can be replaced by
 # ServiceNow Callback (optional, if needed)
 sn_callback_url: ""                       # If your flow supports callback -> SNOW REST API endpoint.
 ritm_number: ""                           # The RITM number so CACF can attach or return results to the right request.
+
+oracle_container_name: ""
+
