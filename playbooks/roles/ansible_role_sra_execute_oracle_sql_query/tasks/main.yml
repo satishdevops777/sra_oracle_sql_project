@@ -42,7 +42,6 @@
 # ---------- Linux + Docker ----------
 - name: Run query (Linux + Docker)
   shell: |
-    docker exec -i {{ oracle_container_name }} bash -c "
     sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_service }} <<EOF
     WHENEVER SQLERROR EXIT SQL.SQLCODE
     WHENEVER OSERROR EXIT 9
