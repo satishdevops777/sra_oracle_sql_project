@@ -11,3 +11,4 @@ sr_data:
 
   RITM: "RITM0001234"
   CALLBACKURL: ""   # keep empty to skip callback
+  ORACLE_CONTAINER: "oracle-xe"
