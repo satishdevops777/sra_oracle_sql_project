@@ -1,137 +1,157 @@
+---
 # ------------------------------------------------------------
-    # 1. Validate queries are SELECT-only
-    # ------------------------------------------------------------
-    - name: Validate all SQL queries are SELECT-only
-      assert:
-        that:
-          - item.query is regex("^(?i)select.*")
-        fail_msg: "Only SELECT statements are allowed. Invalid query: {{ item.name }}"
-      loop: "{{ sql_queries }}"
+# Initialize results
+# ------------------------------------------------------------
+- name: Initialize sql_results
+  set_fact:
+    sql_results: []
 
-    # ------------------------------------------------------------
-    # 2. Check sqlplus availability
-    # ------------------------------------------------------------
-    - name: Check if sqlplus exists (Linux)
-      command: which sqlplus
-      register: sqlplus_check
-      changed_when: false
-      failed_when: sqlplus_check.rc != 0
-      when: ansible_os_family != "Windows"
+# ------------------------------------------------------------
+# 1. Validate queries are SELECT-only
+# ------------------------------------------------------------
+- name: Validate all SQL queries are SELECT-only
+  assert:
+    that:
+      - item.query is regex("^(?i)select.*")
+    fail_msg: "Only SELECT statements are allowed. Invalid query: {{ item.name }}"
+  loop: "{{ sql_queries }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-    - name: Check if sqlplus exists (Windows)
-      win_shell: where sqlplus
-      register: sqlplus_check
-      changed_when: false
-      failed_when: sqlplus_check.rc != 0
-      when: ansible_os_family == "Windows"
+# ------------------------------------------------------------
+# 2. Check sqlplus availability
+# ------------------------------------------------------------
+- name: Check if sqlplus exists (Linux)
+  command: which sqlplus
+  register: sqlplus_check
+  changed_when: false
+  failed_when: sqlplus_check.rc != 0
+  when: ansible_os_family != "Windows"
 
-    # ------------------------------------------------------------
-    # 3. Execute queries one by one
-    # ------------------------------------------------------------
-    - name: Execute Oracle SQL queries
-      block:
+- name: Check if sqlplus exists (Windows)
+  win_shell: where sqlplus
+  register: sqlplus_check
+  changed_when: false
+  failed_when: sqlplus_check.rc != 0
+  when: ansible_os_family == "Windows"
 
-        # ---------- Linux ----------
-        - name: Run query (Linux + Docker)
-          shell: |
-            docker exec -i {{ oracle_container_name }} bash -c "
-            sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_service }} <<EOF
-            WHENEVER SQLERROR EXIT SQL.SQLCODE
-            WHENEVER OSERROR EXIT 9
-            SET PAGESIZE 50000
-            SET LINESIZE 32767
-            SET FEEDBACK OFF
-            SET HEADING OFF
-            SET TRIMSPOOL ON
-            {{ item.query }};
-            EXIT;
-            EOF
-            "
-          register: sql_exec
-          failed_when: false
-          changed_when: false
-          when: ansible_os_family != "Windows"
+# ------------------------------------------------------------
+# 3. Execute queries one by one (NO BLOCK)
+# ------------------------------------------------------------
 
-        # ---------- Windows ----------
-        - name: Run query (Windows)
-          win_shell: |
-            sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }} ^
-            "WHENEVER SQLERROR EXIT SQL.SQLCODE
-             WHENEVER OSERROR EXIT 9
-             SET PAGESIZE 50000
-             SET LINESIZE 32767
-             SET FEEDBACK OFF
-             SET HEADING OFF
-             SET TRIMSPOOL ON
-             {{ item.query }};
-             EXIT;"
-          register: sql_exec
-          failed_when: false
-          changed_when: false
-          when: ansible_os_family == "Windows"
+# ---------- Linux + Docker ----------
+- name: Run query (Linux + Docker)
+  shell: |
+    docker exec -i {{ oracle_container_name }} bash -c "
+    sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_service }} <<EOF
+    WHENEVER SQLERROR EXIT SQL.SQLCODE
+    WHENEVER OSERROR EXIT 9
+    SET PAGESIZE 50000
+    SET LINESIZE 32767
+    SET FEEDBACK OFF
+    SET HEADING OFF
+    SET TRIMSPOOL ON
+    {{ item.query }};
+    EXIT;
+    EOF
+    "
+  register: sql_exec
+  failed_when: false
+  changed_when: false
+  when: ansible_os_family != "Windows"
+  loop: "{{ sql_queries }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-        # ---------- Detect failure ----------
-        - name: Detect query failure
-          set_fact:
-            query_failed: >-
-              {{
-                sql_exec.rc != 0
-                or (sql_exec.stdout is search('ORA-'))
-              }}
+# ---------- Windows ----------
+- name: Run query (Windows)
+  win_shell: |
+    sqlplus -S {{ oracle_user }}/{{ oracle_password }}@{{ oracle_host }}:{{ oracle_port }}/{{ oracle_service }} ^
+    "WHENEVER SQLERROR EXIT SQL.SQLCODE
+     WHENEVER OSERROR EXIT 9
+     SET PAGESIZE 50000
+     SET LINESIZE 32767
+     SET FEEDBACK OFF
+     SET HEADING OFF
+     SET TRIMSPOOL ON
+     {{ item.query }};
+     EXIT;"
+  register: sql_exec
+  failed_when: false
+  changed_when: false
+  when: ansible_os_family == "Windows"
+  loop: "{{ sql_queries }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-        # ---------- Build result ----------
-        - name: Append query result
-          set_fact:
-            sql_results: "{{ sql_results + [ query_result ] }}"
-          vars:
-            query_result:
-              name: "{{ item.name }}"
-              status: "{{ 'FAILED' if query_failed else 'SUCCESS' }}"
-              output: >-
-                {{
-                  (
-                    sql_exec.stdout_lines
-                    | reject('match', '^(Connected to|Disconnected from)')
-                    | reject('match', '^SQL>')
-                    | reject('search', 'ORA-')
-                    | list
-                    | join('\n')
-                  )
-                  if not query_failed else ''
-                }}
-              error: >-
-                {{
-                  (
-                    sql_exec.stdout_lines
-                    | select('search', 'ORA-')
-                    | list
-                    | join('\n')
-                  )
-                  if query_failed else ''
-                }}
+# ------------------------------------------------------------
+# 4. Detect failures per query
+# ------------------------------------------------------------
+- name: Detect query failure
+  set_fact:
+    query_failed: >-
+      {{
+        sql_exec.rc != 0
+        or (sql_exec.stdout is search('ORA-'))
+      }}
+  loop: "{{ sql_queries }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-      loop: "{{ sql_queries }}"
-      loop_control:
-        label: "{{ item.name }}"
+# ------------------------------------------------------------
+# 5. Append query results
+# ------------------------------------------------------------
+- name: Append query result
+  set_fact:
+    sql_results: "{{ sql_results + [ query_result ] }}"
+  vars:
+    query_result:
+      name: "{{ item.name }}"
+      status: "{{ 'FAILED' if query_failed else 'SUCCESS' }}"
+      output: >-
+        {{
+          (
+            sql_exec.stdout_lines
+            | reject('match', '^(Connected to|Disconnected from)')
+            | reject('match', '^SQL>')
+            | reject('search', 'ORA-')
+            | list
+            | join('\n')
+          )
+          if not query_failed else ''
+        }}
+      error: >-
+        {{
+          (
+            sql_exec.stdout_lines
+            | select('search', 'ORA-')
+            | list
+            | join('\n')
+          )
+          if query_failed else ''
+        }}
+  loop: "{{ sql_queries }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-    # ------------------------------------------------------------
-    # 4. Final summary
-    # ------------------------------------------------------------
-    - name: Show SQL execution summary
-      debug:
-        var: sql_results
+# ------------------------------------------------------------
+# 6. Final summary
+# ------------------------------------------------------------
+- name: Show SQL execution summary
+  debug:
+    var: sql_results
 
-    # ------------------------------------------------------------
-    # 5. Send aggregated result to ServiceNow (optional)
-    # ------------------------------------------------------------
-    - name: Send results to ServiceNow
-      uri:
-        url: "{{ sn_callback_url }}"
-        method: POST
-        headers:
-          Content-Type: application/json
-        body_format: json
-        body:
-          ritm: "{{ ritm_number }}"
-          results: "{{ sql_results }}"
-      when: sn_callback_url | default('') | length > 0
+# ------------------------------------------------------------
+# 7. Send aggregated result to ServiceNow (optional)
+# ------------------------------------------------------------
+- name: Send results to ServiceNow
+  uri:
+    url: "{{ sn_callback_url }}"
+    method: POST
+    headers:
+      Content-Type: application/json
+    body_format: json
+    body:
+      ritm: "{{ ritm_number }}"
+      results: "{{ sql_results }}"
+  when: sn_callback_url | default('') | length > 0
