@@ -1,14 +1,4 @@
----
-- name: Run multiple SELECT-only Oracle SQL queries (Linux + Windows)
-  hosts: all
-  gather_facts: yes
-
-  vars:
-    sql_results: []
-
-  tasks:
-
-    # ------------------------------------------------------------
+# ------------------------------------------------------------
     # 1. Validate queries are SELECT-only
     # ------------------------------------------------------------
     - name: Validate all SQL queries are SELECT-only
