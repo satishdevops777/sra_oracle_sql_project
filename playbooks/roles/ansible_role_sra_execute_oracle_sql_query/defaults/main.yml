@@ -1,23 +1,21 @@
 ---
-# Default values                         # YAML start — this file defines default variables for the role
-
+# Default SQL queries (can be overridden)
 sql_queries:
   - name: DB Version
     query: "SELECT banner FROM v$version"
 
   - name: Tablespaces
-    query: "SELECT tablespace_name FROM dba_tablespaces"           # The default SQL query to run if none is provide                                          # Here it returns the current Oracle database date/time.
+    query: "SELECT tablespace_name FROM dba_tablespaces"
 
-oracle_host: ""                           # Oracle database hostname or IP. Must be supplied from SRA/SNOW input.
-oracle_port: "1521"                      # Default Oracle Listener port (1521). Can be overridden.
-oracle_service: ""                        # Oracle Service Name or SID (e.g., ORCL). Required for DB connection.
+# Oracle connection defaults
+oracle_user: ""
+oracle_password: ""
+oracle_service: ""
 
-oracle_user: ""                           # Oracle username for authentication.
-oracle_password: ""                       # Oracle password. (Can be replaced by AAP credential store.)
+# Docker defaults
+oracle_container_name: "oracle-xe"
 
-# ServiceNow Callback (optional, if needed)
-sn_callback_url: ""                       # If your flow supports callback -> SNOW REST API endpoint.
-ritm_number: ""                           # The RITM number so CACF can attach or return results to the right request.
+# Results holder
+sql_results: []
 
-oracle_container_name: ""
 
