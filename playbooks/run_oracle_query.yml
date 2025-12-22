@@ -3,7 +3,7 @@
 - name: Run Oracle SQL Query via SRA Role
   hosts: localhost
   connection: local
-  gather_facts: false
+  gather_facts: true
   become: false
 
   # Load ServiceNow payload mapping + config (example var files)
