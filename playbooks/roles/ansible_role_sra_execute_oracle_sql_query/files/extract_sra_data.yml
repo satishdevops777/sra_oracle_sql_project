@@ -11,3 +11,5 @@ oracle_password: "{{ sr_data['ITDORAPASS'] | default('not_found') }}"
 
 flow_id: "{{ sr_data['Classification'] | default('ITDRESORA001') }}"
 expected_start: "{{ sr_data['ExpectedStart'] | default('now') }}"
+oracle_container_name: "{{ sr_data['ORACLE_CONTAINER'] | default('oracle-db') }}"
+
