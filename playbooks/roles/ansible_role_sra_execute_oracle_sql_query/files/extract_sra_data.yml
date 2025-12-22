@@ -1,6 +1,8 @@
 # Extract variables from ServiceNow payload sr_data
 
-sql_query: "{{ sr_data['ITDORASQLQUERY'] | default('not_found') }}"
+sql_queries:
+  - name: ServiceNow Query
+    query: "{{ sr_data['ITDORASQLQUERY'] | default('SELECT 1 FROM DUAL') }}"
 oracle_host: "{{ sr_data['ITDORAHOST'] | default('not_found') }}"
 oracle_port: "{{ sr_data['ITDORAPORT'] | default('1521') }}"
 oracle_service: "{{ sr_data['ITDORASID'] | default('not_found') }}"
