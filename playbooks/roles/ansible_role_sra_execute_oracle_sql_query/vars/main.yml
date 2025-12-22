@@ -1,5 +1,5 @@
 sr_data:
-  ITDORASQLQUERY: "SELECT SYSDATE FROM DUAL"
+  ITDORASQLQUERY: ""
   ITDORAHOST: "localhost"        # replace with EC2 public or private IP
   ITDORAPORT: 1521
   ITDORASID: "XEPDB1"                  # Oracle XE default pluggable DB
