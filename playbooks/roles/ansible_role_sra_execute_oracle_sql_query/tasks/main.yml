@@ -36,7 +36,7 @@
   when: ansible_os_family == "Windows"
 
 # ------------------------------------------------------------
-# 3. Execute queries one by one
+# 3. Execute queries
 # ------------------------------------------------------------
 
 # ---------- Linux + Docker ----------
@@ -55,7 +55,7 @@
     EXIT;
     EOF
     "
-  register: sql_exec
+  register: sql_exec_linux
   failed_when: false
   changed_when: false
   when: ansible_os_family != "Windows"
@@ -76,7 +76,7 @@
      SET TRIMSPOOL ON
      {{ item.query }};
      EXIT;"
-  register: sql_exec
+  register: sql_exec_windows
   failed_when: false
   changed_when: false
   when: ansible_os_family == "Windows"
@@ -85,9 +85,9 @@
     label: "{{ item.name }}"
 
 # ------------------------------------------------------------
-# 4. Build final results from execution output
+# 4. Build results (Linux)
 # ------------------------------------------------------------
-- name: Build sql_results
+- name: Build sql_results (Linux)
   set_fact:
     sql_results: "{{ sql_results + [ query_result ] }}"
   vars:
@@ -121,19 +121,42 @@
           )
           if query_failed else ''
         }}
-  loop: "{{ sql_exec.results }}"
+  loop: "{{ sql_exec_linux.results | default([]) }}"
   loop_control:
     label: "{{ item.item.name }}"
+  when: ansible_os_family != "Windows"
 
 # ------------------------------------------------------------
-# 5. Final summary
+# 5. Build results (Windows)
+# ------------------------------------------------------------
+- name: Build sql_results (Windows)
+  set_fact:
+    sql_results: "{{ sql_results + [ query_result ] }}"
+  vars:
+    query_failed: >-
+      {{
+        item.rc != 0
+        or (item.stdout is search('ORA-'))
+      }}
+    query_result:
+      name: "{{ item.item.name }}"
+      status: "{{ 'FAILED' if query_failed else 'SUCCESS' }}"
+      output: "{{ item.stdout if not query_failed else '' }}"
+      error: "{{ item.stdout if query_failed else '' }}"
+  loop: "{{ sql_exec_windows.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: ansible_os_family == "Windows"
+
+# ------------------------------------------------------------
+# 6. Final summary
 # ------------------------------------------------------------
 - name: Show SQL execution summary
   debug:
     var: sql_results
 
 # ------------------------------------------------------------
-# 6. Send aggregated result to ServiceNow (optional)
+# 7. Send aggregated result to ServiceNow (optional)
 # ------------------------------------------------------------
 - name: Send results to ServiceNow
   uri:
