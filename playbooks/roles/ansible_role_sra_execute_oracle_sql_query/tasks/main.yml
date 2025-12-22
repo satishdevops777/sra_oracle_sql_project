@@ -36,7 +36,7 @@
   when: ansible_os_family == "Windows"
 
 # ------------------------------------------------------------
-# 3. Execute queries one by one (NO BLOCK)
+# 3. Execute queries one by one
 # ------------------------------------------------------------
 
 # ---------- Linux + Docker ----------
@@ -85,33 +85,24 @@
     label: "{{ item.name }}"
 
 # ------------------------------------------------------------
-# 4. Detect failures per query
+# 4. Build final results from execution output
 # ------------------------------------------------------------
-- name: Detect query failure
-  set_fact:
-    query_failed: >-
-      {{
-        sql_exec.rc != 0
-        or (sql_exec.stdout is search('ORA-'))
-      }}
-  loop: "{{ sql_queries }}"
-  loop_control:
-    label: "{{ item.name }}"
-
-# ------------------------------------------------------------
-# 5. Append query results
-# ------------------------------------------------------------
-- name: Append query result
+- name: Build sql_results
   set_fact:
     sql_results: "{{ sql_results + [ query_result ] }}"
   vars:
+    query_failed: >-
+      {{
+        item.rc != 0
+        or (item.stdout is search('ORA-'))
+      }}
     query_result:
-      name: "{{ item.name }}"
+      name: "{{ item.item.name }}"
       status: "{{ 'FAILED' if query_failed else 'SUCCESS' }}"
       output: >-
         {{
           (
-            sql_exec.stdout_lines
+            item.stdout_lines
             | reject('match', '^(Connected to|Disconnected from)')
             | reject('match', '^SQL>')
             | reject('search', 'ORA-')
@@ -123,26 +114,26 @@
       error: >-
         {{
           (
-            sql_exec.stdout_lines
+            item.stdout_lines
             | select('search', 'ORA-')
             | list
             | join('\n')
           )
           if query_failed else ''
         }}
-  loop: "{{ sql_queries }}"
+  loop: "{{ sql_exec.results }}"
   loop_control:
-    label: "{{ item.name }}"
+    label: "{{ item.item.name }}"
 
 # ------------------------------------------------------------
-# 6. Final summary
+# 5. Final summary
 # ------------------------------------------------------------
 - name: Show SQL execution summary
   debug:
     var: sql_results
 
 # ------------------------------------------------------------
-# 7. Send aggregated result to ServiceNow (optional)
+# 6. Send aggregated result to ServiceNow (optional)
 # ------------------------------------------------------------
 - name: Send results to ServiceNow
   uri:
