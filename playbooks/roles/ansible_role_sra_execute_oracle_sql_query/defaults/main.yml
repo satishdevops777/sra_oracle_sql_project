@@ -1,11 +1,19 @@
 ---
 # Default SQL queries (can be overridden)
 sql_queries:
+  - name: DB Date
+    query: "SELECT SYSDATE FROM DUAL"
+
   - name: DB Version
     query: "SELECT banner FROM v$version"
 
   - name: Tablespaces
     query: "SELECT tablespace_name FROM dba_tablespaces"
+
+  - name: Instance Status
+    query: |
+      SELECT instance_name, status
+      FROM v$instance
 
 # Oracle connection defaults
 oracle_user: ""
